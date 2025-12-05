@@ -127,3 +127,8 @@ WiFi credentials.
 - From a computer, laptop or cell phone connected to the same network,
   use `http://\<GWIDC_IPAddress\>/REPORT_SETTINGS` to verify GWIDC network
   connectivity and IP address
+
+---
+
+&copy; 2025 Tim Sakulich. GWIDC documentation is licensed under Creative Commons Attribution-ShareAlike 4.0 International. <br>
+See: [`LICENSE-DOCS`](/LICENSE-DOCS)
