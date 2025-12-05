@@ -1,11 +1,11 @@
 // Driver for General-purpose WiFi Indicator DeviCe (GWIDC)
-// Compatible with GWIDC Software Release v2-00
+// Compatible with GWIDC Firmware v0_51
 
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2025 Timothy Sakulich
 
 metadata {
-    definition (name: "GWIDC-Hubitat-v2-00", namespace: "tjsakulich", author: "Timothy Sakulich") {
+    definition (name: "GWIDC_Hubitat_v0_51", namespace: "tjsakulich", author: "Timothy Sakulich") {
         capability "Actuator"
         capability "Alarm"
         capability "Bulb"        
@@ -17,13 +17,12 @@ metadata {
         
         /*
         // Including the "SwitchLevel" capability in this driver will make 
-        // the Set Level command available on the 
-        // device Commands tab and to other apps and rules.  However, this 
-        // command is not strictly needed since GWIDC brightness can be 
-        // controlled via deviceNotification using the BRIGHTNESS= parameter. 
-        // Still, to enable the Set Level command, uncomment the following line 
-        // and uncomment the code for the corresponding method and utilities as 
-        // indicated below. 
+        // the Set Level command available on the device Commands tab and
+        // to other apps and rules.  However, this command is not strictly
+        // needed since GWIDC brightness can be controlled via 
+        // deviceNotification using the LEVEL= parameter. Still, to enable
+        // the Set Level command, uncomment the following line and uncomment 
+        // the code for the corresponding method as indicated below. 
         
         capability "SwitchLevel"
         */
@@ -47,9 +46,9 @@ metadata {
         attribute "Mode", "string"
         attribute "Color", "string"
         attribute "Pattern", "string"
-        attribute "Brightness", "number"
+        attribute "Level", "number"
         attribute "Speed", "number"
-        attribute "Tone", "boolean"
+        attribute "Tone", "string"
 
         command "poll"      
     }
@@ -73,8 +72,8 @@ metadata {
 def installed() {
    // Runs when Hubitat first starts up and connects to the device
    if (EnableDebug) log.debug "Executing installed()"
-   GWIDC_On = "PULSING&RGB=FF0000&BRIGHTNESS=60&SPEED=2&TONE=0"
-   GWIDC_Off = "PATTERN=GOOOGOOOGOOO&BRIGHTNESS=1&SPEED=0&TONE=0"
+   GWIDC_On = "PULSE&RGB=FF0000&LEVEL=50&SPEED=2&TONE=OFF"
+   GWIDC_Off = "PATTERN=GOOOGOOOGOOO&LEVEL=1&SPEED=0&TONE=OFF"
    GWIDC_Strobe_Color = "220000"
     
    // the button capability creates a way to trigger rules within Rule Machine
@@ -102,7 +101,7 @@ def beep() {
 
 //====================================================
 def both() {
-    CommandMessage = "?STROBE&RGB=${GWIDC_Strobe_Color}&BRIGHTNESS=255&SPEED=2&TONE=1"
+    CommandMessage = "?STROBE&RGB=${GWIDC_Strobe_Color}&LEVEL=100&SPEED=2&TONE=ON"
     
     log.info "${device.label} Executing 'both()' (${CommandMessage})"
     
@@ -224,7 +223,7 @@ def refresh() {
 
 //====================================================
 def siren() {
-    CommandMessage = "?STROBE&RGB=000000&BRIGHTNESS=0&SPEED=2&TONE=1"
+    CommandMessage = "?STROBE&RGB=000000&LEVEL=0&SPEED=2&TONE=ON"
     
     log.info "${device.label} Executing 'siren()' (${CommandMessage})"
     
@@ -246,7 +245,7 @@ def siren() {
 
 //====================================================
 def strobe() {
-    CommandMessage = "?STROBE&RGB=${GWIDC_Strobe_Color}&BRIGHTNESS=255&SPEED=2&TONE=0"
+    CommandMessage = "?STROBE&RGB=${GWIDC_Strobe_Color}&LEVEL=100&SPEED=2&TONE=OFF"
     log.info "${device.label} Executing 'strobe()' (${CommandMessage})"
     
     def ip = settings.DeviceIP
@@ -310,17 +309,9 @@ private myCallback(response, data) {
             sendEvent(name: "Mode",       value: jsonResponse.Mode)
             sendEvent(name: "Color",      value: jsonResponse.Color)
             sendEvent(name: "Pattern",    value: jsonResponse.Pattern)
-            sendEvent(name: "Brightness", value: jsonResponse.Brightness)    
+            sendEvent(name: "Level",      value: jsonResponse.Level)    
             sendEvent(name: "Speed",      value: jsonResponse.Speed)
             sendEvent(name: "Tone",       value: jsonResponse.Tone)
-            
-            /* 
-            // The following code is only needed if the SwitchLevel capability 
-            // is enabled. GWUDC returns brightness in range 0-255 which needs 
-            // to be converted back to Hubitat level in the range 0-100
-            Level = convertRangeTo100(jsonResponse.Brightness)
-			sendEvent(name: "Level",      value: Level)
-            */
             
             // the following code checks to see if the GWIDC is reporting a STARTUP condition
     		// and then calls initialize() 
@@ -393,13 +384,8 @@ private parse(String description) {
 //===================================================================
 
 def setLevel(level) {
-    // Hubitat Set Level values must be in the range 0-100 where as GWIDC device brightness 
-    // uses the range 0-255. Scale the Hubitat value before sending to GWIDC, using the 
-    // convertRangeto255() method -- see UTILITY FUNCTIONS below.
-    convertedbrightness = convertRangeTo255(level)
-	
-    CommandMessage = "?BRIGHTNESS=${convertedbrightness}"   
-    log.info "${device.label} Executing 'setLevel' ${level} -- Converted to Brightness = ${convertedbrightness}"
+    CommandMessage = "?LEVEL=${level}"   
+    log.info "${device.label} Executing 'setLevel' ${level}"
     
     def ip = settings.DeviceIP
     if (!ip) {
@@ -414,41 +400,6 @@ def setLevel(level) {
 
     if (EnableDebug) log.debug "Sending asynchronous GET request ${params.uri}"
     asynchttpGet("myCallback", params)  
-}
-
-//===================================================================
-//                   Additional Utility Functions 
-//           Required to Implement SwitchLevel Capability
-//===================================================================
-
-private convertRangeTo255(input) {
-    if (input < 0 || input > 100) {
-        throw new IllegalArgumentException("Input must be between 0 and 100")
-    }
-    // Convert the input to the 0-255 range.
-    // Use a quadratic equation that has slope = 1 at (0,0) and passes through (100,255)
-    // The resulting coefficient is 31/2000 which equals decimal 0.0155
-    float result = (0.0155 * input * input + input)
-    // Round the result to the nearest integer
-    int roundedResult = Math.round(result)
-    // Ensure the result is clamped between 0 and 255, just in case
-    return Math.min(Math.max(roundedResult, 0), 255)
-}
-
-
-private convertRangeTo100(input) {
-    if (input < 0 || input > 255) {
-        throw new IllegalArgumentException("Input must be between 0 and 255")
-    }
-    // Convert the input to the 0-100 range.
-    // Use inverse of the quadratic equation used in convertRangeto255
-    double coefficient = 0.0155
-    double result = input/coefficient + (0.5/coefficient)*(0.5/coefficient)
-    result = Math.sqrt(result) - (0.5/coefficient)
-    // Round the result to the nearest integer
-    int roundedResult = Math.round(result)
-    // Ensure the result is clamped between 0 and 100, just in case
-    return Math.min(Math.max(roundedResult, 0), 100)
 }
 */
 

@@ -4,7 +4,7 @@
 // Copyright (c) 2025 Timothy Sakulich
 
 //These definitions are used to embed sketch information in the code itself
-#define BUILDVERSION "GWIDC_v2_51"
+#define BUILDVERSION "GWIDC_v0_52"
 #define SKETCHNAME __FILE__
 #define BUILDDATE __DATE__
 #define BUILDTIME __TIME__
@@ -156,42 +156,47 @@ http://<GWIDC_IPAddress>/?<Display_Mode>&<Parameter1>=<value1>&<Parameter2>=<val
 #include <Adafruit_NeoPixel.h>
 #include <ArduinoJson.h>
 
-// Global variables for event handlers
-// These must be global so their state can be modified outside of setup()
-WiFiEventHandler onDisconnectedHandler;
-WiFiEventHandler onConnectedHandler;
 
-//Define the Neopixel device -- data pin, global constants and global variables
-#define NEOPIXEL_DATA_PIN D7   // Node MCU pin connected to the NeoPixel
+//
+//Define static values for hardware and connections to the NodeMCU
+
+//Neopixel device -- data pin, global constants and global variables
+#define NEOPIXEL_DATA_PIN D7   // NodeMCU GPIO pin connected to the NeoPixel
 #define NUM_PIXELS 12          // number of NeoPixels in the ring
 #define FIXED_PIXEL_INTERVAL 3 // defines the pixel interval used in STROBE
                                // e.g., FIXED_PIXEL_INTERVAL 3 strobes every 3rd pixel
-
 Adafruit_NeoPixel strip(NUM_PIXELS, NEOPIXEL_DATA_PIN, NEO_GRB + NEO_KHZ800);
 
-
-//Define the reset button pin -- connection, global constants and global variables
-const int BUTTON_PIN = D1; // The GPIO pin connected to the button
+//Reset button
+#define BUTTON_PIN D1          // NodeMCU pin connected to the button
 const long LONG_PRESS_DURATION = 5000; // 5 seconds in milliseconds
 const long WIFI_CHECK_INTERVAL = 5000; // 5 seconds in milliseconds
 long buttonPressTime = 0;
 
-
-//Define the piezo buzzer -- pin connection, global constants and global variables
-#define PIEZO_BUZZER 4        // used for piezo buzzer
-//byte TOGGLE_STATE = 0;        // toggle state default to off
+//Piezo buzzer -- pin connection, global constants and global variables
+#define PIEZO_BUZZER D2       // used for piezo buzzer
 bool piezo_Active = false;    // piezo active default to off
 
+//Onboard LED
+#define LED_ONBOARD D4        // NodeMCU Built in LED 
 
+
+//
 //Definitions for WiFi and Home Automation hub connections
-char GWIDCName[10]; // This will be updated after WiFi connection is established
 char TargetHub_URL[80];
 
 char hub_ip[16]; // For IP address (e.g., "192.168.1.100")
 char hub_port[6]; // For port number (e.g., "8080")
 bool hub_validated = false; // set to true once a valid home automation hub IP and Port is provided
+
+//
+//Define the WiFi and HTTP capabilities
 ESP8266WebServer server(80); //Server on port 80
-//long wifiCheckTime = 0;
+
+// Global variables for WiFi event handlers
+// These must be global so their state can be modified outside of setup()
+WiFiEventHandler onDisconnectedHandler;
+WiFiEventHandler onConnectedHandler;
 
 // Initialize WiFiManager
 WiFiManager wifiManager;
@@ -203,46 +208,40 @@ HTTPClient httpclient;
 Preferences preferences;
 
 
-//Misc Definitions
-//NOTE to SELF - decide whether to keep LED_ONBOARD or LedPin
-const int ledPin = D4; // The built-in LED on most boards
-#define LED_ONBOARD  D0       // used for diagnostic LED
+//
+//Declare variables that serve as parameters for device settings. 
+//These paraeters are exposed and set via HTTP messages for device control.
+char name_Param[10];      // Updated after WiFi connection is established
+char mode_Param[40];      // Current dsiplay mode for the device
+char color_Param[7];      // Current RGB color (HEX)
+char pattern_Param[NUM_PIXELS+1];
+uint16_t level_Param = 50; // Current brightness level in the range 0-100
+uint16_t speed_Param = 2; // Current speed setting (integer value for lookup tables)
+char tone_Param[4];       // ON or OFF -- set in combination with piezo_Active
 
-// Declare global variables for tracking the GWIDC state, and provide default startup values
 
-char   indicator_Mode[40];
-char   led_hex_Color[7];
-int    strip_Level;       //brightness level parameter in the range 0-100
-int    strip_Brightness;  //actual Neopixel brightness in range 0-255 
-char   pixel_Pattern[NUM_PIXELS+1];
-char   PULSE_Color;
-
-// Declare global variables for managing flashing patterns in the main loop
-// default to first pattern 
+//
+// Misc global variables and constants
+uint16_t strip_Brightness;      //actual Neopixel brightness in range 0-255 
 uint16_t timing_Pattern = 0;
-
-// Declare global variables for the speed of the display mode effect
-// default to medium speed
-uint16_t speed_Setting = 2;
-
-int current_trail_pixel = 0;  // Needed for TRAIL mode
-#define TRAIL_FADE 30         // Amount of color value to decrement each successive pixel
+uint16_t current_trail_pixel = 0;  // Needed for TRAIL mode
+uint16_t TRAIL_FADE = 30;        // Amount of color value to decrement each successive pixel
 
 /// Declare global constants and variables for managing PULSE patterns in the main loop
-int pulse_strip_Brightness = 0; // will be calculated in real time
-int pulse_Range = 0;       // will be calculated in real time
-int pulse_Direction = 1;   // will toggle in real time
+uint16_t pulse_strip_Brightness = 0; // will be calculated in real time
+uint16_t pulse_Range = 0;       // will be calculated in real time
+uint16_t pulse_Direction = 1;   // will toggle in real time
 
 /// rainbow_Timer is for the RAINBOW indicator state
-int rainbow_Timer = 0;
+uint16_t rainbow_Timer = 0;
 
 // Timing Patterns - this is a series of numbers defining the interval between 
 // toggling pixels/piezo buzzer. A zero before the end of the pattern 
 // indicates a short pattern that restarts when it detects a zero. 
 // NOTE: Undeclared global array elements automatically initialize to zeros
 const byte NUM_TIMING_PATTERNS = 6;  // number of patterns
-const byte MAX_PATTERN_LEN = 18;    // max pattern length
-const int pattern[NUM_TIMING_PATTERNS][MAX_PATTERN_LEN] =
+const byte MAX_PATTERN_LEN = 18;     // max pattern length
+const uint16_t pattern[NUM_TIMING_PATTERNS][MAX_PATTERN_LEN] =
 { {1,0},             // constant for SOLID, PATTERN, RAINBOW
   {1,1,0},           // even tempo for FLASH, PULSE, TRAIL
   {10,1,0},          // strobe pattern 1 for STROBE
@@ -255,13 +254,13 @@ const int pattern[NUM_TIMING_PATTERNS][MAX_PATTERN_LEN] =
 // lookup tables. The values are msptu = milliseconds per timing unit.  These values have 
 // been tested visually to ensure the effects (e.g., FLASH) are neither too fast nor too 
 // slow to be useful or pleasing
-const int NUM_SPEEDS = 5;  // Number of speeds contained in the following lookup tables
-const int msptu_for_FLASH[] = {1200,800,400,200,100};
-const int msptu_for_PULSE[] = {120,90,60,30,15};
-const int msptu_for_RAINBOW[] = {30,20,10,5,2};
-const int msptu_for_SOS[]     = {250,200,150,80,60};
-const int msptu_for_STROBE[]  = {300,200,100,50,25};
-const int msptu_for_TRAIL[]   = {110,90,70,40,20};
+const uint16_t NUM_SPEEDS = 5;  // Number of speeds contained in the following lookup tables
+const uint16_t msptu_for_FLASH[] = {1200,800,400,200,100};
+const uint16_t msptu_for_PULSE[] = {120,90,60,30,15};
+const uint16_t msptu_for_RAINBOW[] = {30,20,10,5,2};
+const uint16_t msptu_for_SOS[]     = {250,200,150,80,60};
+const uint16_t msptu_for_STROBE[]  = {300,200,100,50,25};
+const uint16_t msptu_for_TRAIL[]   = {110,90,70,40,20};
 
 bool flag_pattern_restart = true;
 
@@ -270,7 +269,7 @@ byte step = 0;                // current step in pattern default to start
 unsigned long current_Time;   // current time for test
 unsigned long start_Time;     // start time of this step
 
-int ms_per_unit = 0;          // initialize the timing per unit
+uint16_t ms_per_unit = 0;          // initialize the timing per unit
 
 
 //******************************************************************************
@@ -286,10 +285,6 @@ void setup() {
   #endif
 
   //Onboard LED port Direction output
-  pinMode(ledPin, OUTPUT);
-  digitalWrite(ledPin, HIGH);//Power on LED state off
-
-  //Onboard LED port Direction output
   pinMode(LED_ONBOARD, OUTPUT);
   digitalWrite(LED_ONBOARD, HIGH); //LED off
 
@@ -298,10 +293,8 @@ void setup() {
   digitalWrite(PIEZO_BUZZER, LOW); //Piezo Buzzer off
 
   // Blink the onboard LED to indicate startup
-  digitalWrite(ledPin, LOW);
   digitalWrite(LED_ONBOARD, LOW);
   delay(200);
-  digitalWrite(ledPin, HIGH);
   digitalWrite(LED_ONBOARD, HIGH);
 
   //NEOPIXEL initialize strip
@@ -331,12 +324,11 @@ void setup() {
   
 
   // NEOPIXEL Indicate Initializing WiFi (yellow at pixel 0)
-  strcpy(indicator_Mode, "BOOTING");
-  const int temp_strip_Brightness = 255;
-  const int pixel_brightness = 16;
+  strcpy(mode_Param, "BOOTING");
+  const int temp_strip_Brightness = 40;
   strip.setBrightness(temp_strip_Brightness);
   strip.clear();
-  strip.setPixelColor(0, pixel_brightness, pixel_brightness, 0);
+  strip.setPixelColor(0, 255, 255, 0);
   strip.show(); 
 
   // If there no saved SSID and password then call the configuration portal
@@ -354,13 +346,15 @@ void setup() {
   wifiManager.setConnectTimeout(60); 
   wifiManager.autoConnect("GWIDC_AP");
   
-  WiFi.hostname().toCharArray(GWIDCName, sizeof(GWIDCName));
-  //GWIDCName = WiFi.hostname();
+  WiFi.hostname().toCharArray(name_Param, sizeof(name_Param));
+  //name_Param = WiFi.hostname();
 
   
   //NEOPIXEL Indicate WiFi Connected (green at pixel 0)
-  strip.setPixelColor(0, 0, pixel_brightness, 0);
+  strip.clear();
+  strip.setPixelColor(0, 0, 255, 0);
   strip.show();         
+
 
   #ifdef DEBUG
   Serial.print("Device is connected to ");
@@ -465,19 +459,19 @@ void setup() {
   Serial.println("HTTP server started");
 
   //NEOPIXEL Indicate completed setup() (blue at pixel 0)
-  strcpy(indicator_Mode, "READY");
+  strcpy(mode_Param, "READY");
   strip.clear();
-  strip.setPixelColor(0, 0, 0, pixel_brightness);
+  strip.setPixelColor(0, 0, 0, 255);
   strip.show();  
 
-  //Initialize global variables used to communicate the GWIDC device status
-  for(int i=0; i< NUM_PIXELS; i++) {pixel_Pattern[i]='-';}
-  pixel_Pattern[NUM_PIXELS+1] = '\0';  // terminate with null char
-  strcpy(led_hex_Color,"000000");
-  PULSE_Color = '-';
-  strip_Level = 100;
-  strip_Brightness = scale100to255 (strip_Level);
-  speed_Setting = 2;
+  //Initialize reamaing global parameters used to control the GWIDC device
+  for(int i=0; i< NUM_PIXELS; i++) {pattern_Param[i]='-';}
+  pattern_Param[NUM_PIXELS+1] = '\0';  // terminate with null char
+  strcpy(color_Param,"000000");
+  level_Param = 100;
+  strip_Brightness = scale100to255 (level_Param);
+  speed_Param = 2;
+  strcpy(tone_Param, "OFF");
   piezo_Active = false;
   
   // Do a loop for one second
@@ -494,7 +488,6 @@ void setup() {
 //******************************************************************************
 
 void loop() {
-
 
   ArduinoOTA.handle();   //Handle OTA request
   
@@ -535,39 +528,37 @@ void loop() {
 
     flag_pattern_restart = false;
 
-    if (strcmp(indicator_Mode,"RAINBOW") == 0) {
+    if (strcmp(mode_Param,"RAINBOW") == 0) {
       strip.setBrightness(strip_Brightness);
       rainbow_Timer = (rainbow_Timer + 256) % 65536;
       strip.rainbow(rainbow_Timer);
       strip.show();
     }
 
-
-    else if (strcmp(indicator_Mode,"PATTERN") == 0) {
+    else if (strcmp(mode_Param,"PATTERN") == 0) {
       strip.setBrightness(strip_Brightness);
       for(int i=0; i< NUM_PIXELS; i++){
-        if      (pixel_Pattern[i] == 'O') strip.setPixelColor(i,0,0,0);
-        else if (pixel_Pattern[i] == 'R') strip.setPixelColor(i,255,0,0);
-        else if (pixel_Pattern[i] == 'G') strip.setPixelColor(i,0,255,0);
-        else if (pixel_Pattern[i] == 'B') strip.setPixelColor(i,0,0,255);
-        else if (pixel_Pattern[i] == 'Y') strip.setPixelColor(i,255,255,0);
-        else if (pixel_Pattern[i] == 'C') strip.setPixelColor(i,0,255,255);
-        else if (pixel_Pattern[i] == 'P') strip.setPixelColor(i,255,0,255);
-        else if (pixel_Pattern[i] == 'W') strip.setPixelColor(i,255,255,255);  
+        if      (pattern_Param[i] == 'O') strip.setPixelColor(i,0,0,0);
+        else if (pattern_Param[i] == 'R') strip.setPixelColor(i,255,0,0);
+        else if (pattern_Param[i] == 'G') strip.setPixelColor(i,0,255,0);
+        else if (pattern_Param[i] == 'B') strip.setPixelColor(i,0,0,255);
+        else if (pattern_Param[i] == 'Y') strip.setPixelColor(i,255,255,0);
+        else if (pattern_Param[i] == 'C') strip.setPixelColor(i,0,255,255);
+        else if (pattern_Param[i] == 'P') strip.setPixelColor(i,255,0,255);
+        else if (pattern_Param[i] == 'W') strip.setPixelColor(i,255,255,255);  
         //simply ignore other values            
       }
       strip.show();
     }
 
- 
-    else if (strcmp(indicator_Mode,"FLASH") == 0) { 
+    else if (strcmp(mode_Param,"FLASH") == 0) { 
       strip.setBrightness(strip_Brightness);
-      if (step % 2 == 0) setled_hex_Color (led_hex_Color);
-      else setled_hex_Color ("000000");
+      if (step % 2 == 0) set_ring_color (color_Param);
+      else set_ring_color ("000000");
       strip.show();
     }
 
-    else if (strcmp(indicator_Mode,"PULSE") == 0) { 
+    else if (strcmp(mode_Param,"PULSE") == 0) { 
       pulse_strip_Brightness = pulse_strip_Brightness + pulse_Direction;
       // have to recalculate each iteration for whatever the current strip_Brightness is set to
       pulse_Range = 2*strip_Brightness/3;
@@ -585,26 +576,26 @@ void loop() {
       }
       
       strip.setBrightness(pulse_strip_Brightness);
-      colorWipe(hexToUint32(led_hex_Color),0);
+      colorWipe(hexToUint32(color_Param),0);
       strip.show();
     }
 
-    else if (strcmp(indicator_Mode,"SOLID") == 0) {
+    else if (strcmp(mode_Param,"SOLID") == 0) {
       strip.setBrightness(strip_Brightness);
-      setled_hex_Color (led_hex_Color);
+      set_ring_color (color_Param);
       strip.show();
     }
 
-    else if (strcmp(indicator_Mode,"SOS") == 0) { 
+    else if (strcmp(mode_Param,"SOS") == 0) { 
       strip.setBrightness(strip_Brightness);
-      if (step % 2 == 0) setled_hex_Color (led_hex_Color);
-      else setled_hex_Color ("000000");
+      if (step % 2 == 0) set_ring_color (color_Param);
+      else set_ring_color ("000000");
       strip.show();
     }
 
-    else if (strcmp(indicator_Mode,"STROBE") == 0) {
+    else if (strcmp(mode_Param,"STROBE") == 0) {
       strip.setBrightness(strip_Brightness);
-      setled_hex_Color (led_hex_Color);
+      set_ring_color (color_Param);
       if (step % 2 == 0) {
       for (int i = 0; i < NUM_PIXELS; i++) {
           if ((i % FIXED_PIXEL_INTERVAL) == 0) {
@@ -615,13 +606,12 @@ void loop() {
       strip.show();
     }
 
-    else if (strcmp(indicator_Mode,"TRAIL") == 0) {
+    else if (strcmp(mode_Param,"TRAIL") == 0) {
       strip.setBrightness(strip_Brightness); 
       if (step % 2 == 0) fadePixelTrail();
       strip.show();
     }
       
-
     if (piezo_Active) {
       digitalWrite(LED_ONBOARD, (step % 2 == 1)); // change led state
       digitalWrite(PIEZO_BUZZER, (step % 2 == 0)); //change piezo buzzer state
@@ -776,17 +766,14 @@ void handlePOLL() {
   Serial.println(remoteIp);
   #endif
 
-  String tone_status = "OFF";
-  if (piezo_Active) tone_status = "ON";
-
   StaticJsonDocument<200> doc;
-  doc["Name"]       = GWIDCName;
-  doc["Mode"]       = indicator_Mode;
-  doc["Color"]      = led_hex_Color;
-  doc["Pattern"]    = pixel_Pattern;
-  doc["Level"]      = strip_Level;
-  doc["Speed"]      = speed_Setting;
-  doc["Tone"]       = tone_status;
+  doc["Name"]       = name_Param;
+  doc["Mode"]       = mode_Param;
+  doc["Color"]      = color_Param;
+  doc["Pattern"]    = pattern_Param;
+  doc["Level"]      = level_Param;
+  doc["Speed"]      = speed_Param;
+  doc["Tone"]       = tone_Param;
 
   String jsonString;
   serializeJson(doc, jsonString);
@@ -857,16 +844,14 @@ void handleREPORT_SETTINGS() {
   message = message + "Target Hub Port: " + hub_port + "<br>";
   message = message + "Target Hub URL: " + TargetHub_URL + "<br><br>";
   message = message + "****** Current State Variables ******" + "<br><br>";
-  message = message + "Name: "    + GWIDCName + "<br>";
-  message = message + "Mode: "    + indicator_Mode + "<br>";
-  message = message + "Color: "   + led_hex_Color + "<br>";
-  message = message + "Pattern: " + pixel_Pattern + "<br>";
-  message = message + "Level: "   + strip_Level + "<br>";
-  message = message + "Speed: "   + speed_Setting + "<br>";
-
-  //message = message + "Tone: "    + piezo_Active + "<br>";
-  if (piezo_Active) message = message + "Tone: "    + "ON" + "<br>";
-  else              message = message + "Tone: "    + "OFF" + "<br>";
+  message = message + "Name: "    + name_Param + "<br>";
+  message = message + "Mode: "    + mode_Param + "<br>";
+  message = message + "Color: "   + color_Param + "<br>";
+  message = message + "Pattern: " + pattern_Param + "<br>";
+  message = message + "Level: "   + level_Param + "<br>";
+  message = message + "Speed: "   + speed_Param + "<br>";
+  message = message + "Tone: "    + tone_Param + "<br>";
+ 
   
   // Send HTTP reply to requesting IP address
   server.send(200, "text/html", message);
@@ -884,7 +869,7 @@ void handleVERSION_INFO() {
   #endif
 
   StaticJsonDocument<200> doc;
-  doc["Hardware_ID"]     = GWIDCName;
+  doc["Hardware_ID"]     = name_Param;
   doc["Build_Version"]   = BUILDVERSION;
   doc["Build_Date"]      = BUILDDATE;
   doc["Build_Time"]      = BUILDTIME;
@@ -946,30 +931,30 @@ void handleRoot() {
     //Ensure argument length is same as NUM_PIXELS, otherwise it is invalid input
     if (argument_value.length() == NUM_PIXELS) {
       argument_value.toUpperCase();
-      for(int i=0; i< NUM_PIXELS; i++) {pixel_Pattern[i] = argument_value.charAt(i);}
-      pixel_Pattern[NUM_PIXELS] = '\0';  // terminate with null char
+      for(int i=0; i< NUM_PIXELS; i++) {pattern_Param[i] = argument_value.charAt(i);}
+      pattern_Param[NUM_PIXELS] = '\0';  // terminate with null char
 
       //Use the input to compute an "average" color across the Pattern
       uint32_t red = 0;
       uint32_t green = 0;
       uint32_t blue = 0;
       for(int i=0; i< NUM_PIXELS; i++){
-        if      (pixel_Pattern[i] == 'O') {}
-        else if (pixel_Pattern[i] == 'R') {red = red + 255;}
-        else if (pixel_Pattern[i] == 'G') {green = green + 255;}
-        else if (pixel_Pattern[i] == 'B') {blue = blue + 255;}
-        else if (pixel_Pattern[i] == 'Y') {red = red + 255; green = green + 255;}
-        else if (pixel_Pattern[i] == 'C') {green = green + 255; blue = blue + 255;}
-        else if (pixel_Pattern[i] == 'P') {red = red + 255; blue = blue + 255;}
-        else if (pixel_Pattern[i] == 'W') {red = red + 255; green = green + 255; blue = blue + 255;}
+        if      (pattern_Param[i] == 'O') {}
+        else if (pattern_Param[i] == 'R') {red = red + 255;}
+        else if (pattern_Param[i] == 'G') {green = green + 255;}
+        else if (pattern_Param[i] == 'B') {blue = blue + 255;}
+        else if (pattern_Param[i] == 'Y') {red = red + 255; green = green + 255;}
+        else if (pattern_Param[i] == 'C') {green = green + 255; blue = blue + 255;}
+        else if (pattern_Param[i] == 'P') {red = red + 255; blue = blue + 255;}
+        else if (pattern_Param[i] == 'W') {red = red + 255; green = green + 255; blue = blue + 255;}
         //simply ignore other values    
       }
       red = round(red/NUM_PIXELS);
       green = round(green/NUM_PIXELS);
       blue = round(blue/NUM_PIXELS);
-      rgbToHex(red, green, blue, led_hex_Color);
+      rgbToHex(red, green, blue, color_Param);
 
-      strcpy(indicator_Mode, "PATTERN");
+      strcpy(mode_Param, "PATTERN");
       timing_Pattern = 0;
       ms_per_unit = 0;
 
@@ -977,9 +962,9 @@ void handleRoot() {
       
       #ifdef DEBUG
       Serial.print("Set to ");
-      Serial.print(indicator_Mode);
-      Serial.print(" (computed average led_hex_Color is ");
-      Serial.print(led_hex_Color);
+      Serial.print(mode_Param);
+      Serial.print(" (computed average color_Param is ");
+      Serial.print(color_Param);
       Serial.println("). Checking for additional parameters.");
       #endif
     }
@@ -994,21 +979,22 @@ void handleRoot() {
     #endif
 
     // Set the pattern string to all 'X's
-    for(int i=0; i< NUM_PIXELS; i++) {pixel_Pattern[i]='*';}
-    pixel_Pattern [NUM_PIXELS] = '\0'; // terminate with null char
+    for(int i=0; i< NUM_PIXELS; i++) {pattern_Param[i]='*';}
+    pattern_Param [NUM_PIXELS] = '\0'; // terminate with null char
 
-    strcpy(indicator_Mode, "FLASH");
+    strcpy(mode_Param, "FLASH");
     timing_Pattern = 1;  // use the timing pattern for FLASH
-    ms_per_unit =  msptu_for_FLASH[speed_Setting];
+    ms_per_unit =  msptu_for_FLASH[speed_Param];
 
     // Check to see if "DEFAULT" was specified for this mode
     // if so, set the mode to a white FLASH at medium speed without piezo
     if (server.arg("FLASH") == "DEFAULT") {
-      strcpy(led_hex_Color,"FFFFFF");
-      strip_Level = 50;
-      strip_Brightness = scale100to255(strip_Level);
-      speed_Setting = 2; // medium speed
-      ms_per_unit = msptu_for_FLASH[speed_Setting]; 
+      strcpy(color_Param,"FFFFFF");
+      level_Param = 50;
+      strip_Brightness = scale100to255(level_Param);
+      speed_Param = 2; // medium speed
+      ms_per_unit = msptu_for_FLASH[speed_Param]; 
+      strcpy(tone_Param, "OFF");
       piezo_Active = false;
     }
 
@@ -1016,7 +1002,7 @@ void handleRoot() {
 
     #ifdef DEBUG
     Serial.print("Set to ");
-    Serial.print(indicator_Mode);
+    Serial.print(mode_Param);
     Serial.println(". Checking for additional parameters.");
     #endif
   } 
@@ -1032,21 +1018,22 @@ void handleRoot() {
     #endif
 
     // Set the pattern string to all 'X's
-    for(int i=0; i< NUM_PIXELS; i++) {pixel_Pattern[i]='*';}
-    pixel_Pattern [NUM_PIXELS] = '\0'; // terminate with null char
+    for(int i=0; i< NUM_PIXELS; i++) {pattern_Param[i]='*';}
+    pattern_Param [NUM_PIXELS] = '\0'; // terminate with null char
 
-    strcpy(indicator_Mode, "PULSE");
+    strcpy(mode_Param, "PULSE");
     timing_Pattern=1; // use the timing pattern for PULSE
-    ms_per_unit =  msptu_for_PULSE[speed_Setting];
+    ms_per_unit =  msptu_for_PULSE[speed_Param];
 
     // Check to see if "DEFAULT" was specified for this mode
     // if so, set the mode to a white pulse at medium speed without piezo
     if (server.arg("PULSE") == "DEFAULT") {
-      strcpy(led_hex_Color,"FFFFFF");
-      strip_Level = 50;
-      strip_Brightness = scale100to255(strip_Level);
-      speed_Setting = 2; // medium speed
-      ms_per_unit = msptu_for_PULSE[speed_Setting]; 
+      strcpy(color_Param,"FFFFFF");
+      level_Param = 50;
+      strip_Brightness = scale100to255(level_Param);
+      speed_Param = 2; // medium speed
+      ms_per_unit = msptu_for_PULSE[speed_Param]; 
+      strcpy(tone_Param, "OFF");
       piezo_Active = false;
     }
 
@@ -1054,7 +1041,7 @@ void handleRoot() {
 
     #ifdef DEBUG
     Serial.print("Set to ");
-    Serial.print(indicator_Mode);
+    Serial.print(mode_Param);
     Serial.println(". Checking for additional parameters.");
     #endif
   }
@@ -1069,19 +1056,20 @@ void handleRoot() {
     #endif
   
     // Set the pattern string to all 'X's
-    for(int i=0; i< NUM_PIXELS; i++) {pixel_Pattern[i]='*';}
-    pixel_Pattern [NUM_PIXELS] = '\0'; // terminate with null char
+    for(int i=0; i< NUM_PIXELS; i++) {pattern_Param[i]='*';}
+    pattern_Param [NUM_PIXELS] = '\0'; // terminate with null char
 
-    strcpy(indicator_Mode, "SOLID");
+    strcpy(mode_Param, "SOLID");
     timing_Pattern=0;
     ms_per_unit = 0;
 
     // Check to see if "DEFAULT" was specified for this mode
     // if so, set the mode to white without piezo
     if (server.arg("TRAIL") == "DEFAULT") {
-      strcpy(led_hex_Color,"FFFFFF");
-      strip_Level = 50;
-      strip_Brightness = scale100to255(strip_Level);
+      strcpy(color_Param,"FFFFFF");
+      level_Param = 50;
+      strip_Brightness = scale100to255(level_Param);
+      strcpy(tone_Param, "OFF");
       piezo_Active = false;
     }
 
@@ -1089,7 +1077,7 @@ void handleRoot() {
 
     #ifdef DEBUG
     Serial.print("Set to ");
-    Serial.print(indicator_Mode);
+    Serial.print(mode_Param);
     Serial.println(". Checking for additional parameters.");
     #endif
   }
@@ -1105,21 +1093,22 @@ void handleRoot() {
     #endif
 
     // Set the pattern string to all 'X's
-    for(int i=0; i< NUM_PIXELS; i++) {pixel_Pattern[i]='*';}
-    pixel_Pattern [NUM_PIXELS] = '\0'; // terminate with null char
+    for(int i=0; i< NUM_PIXELS; i++) {pattern_Param[i]='*';}
+    pattern_Param [NUM_PIXELS] = '\0'; // terminate with null char
 
-    strcpy(indicator_Mode, "SOS");
+    strcpy(mode_Param, "SOS");
     timing_Pattern = 5;  // use the timing pattern for SOS
-    ms_per_unit =  msptu_for_SOS[speed_Setting];
+    ms_per_unit =  msptu_for_SOS[speed_Param];
 
     // Check to see if "DEFAULT" was specified for this mode
     // if so, set the mode to a white FLASH at medium speed without piezo
     if (server.arg("SOS") == "DEFAULT") {
-      strcpy(led_hex_Color,"FFFFFF");
-      strip_Level = 50;
-      strip_Brightness = scale100to255(strip_Level);
-      speed_Setting = 2; // medium speed
-      ms_per_unit = msptu_for_SOS[speed_Setting];
+      strcpy(color_Param,"FFFFFF");
+      level_Param = 50;
+      strip_Brightness = scale100to255(level_Param);
+      speed_Param = 2; // medium speed
+      ms_per_unit = msptu_for_SOS[speed_Param];
+      strcpy(tone_Param, "OFF");
       piezo_Active = false;
     }
 
@@ -1127,7 +1116,7 @@ void handleRoot() {
 
     #ifdef DEBUG
     Serial.print("Set to ");
-    Serial.print(indicator_Mode);
+    Serial.print(mode_Param);
     Serial.println(". Checking for additional parameters.");
     #endif
   } 
@@ -1146,28 +1135,29 @@ void handleRoot() {
     for (int i = 0; i < NUM_PIXELS; i++) {
       if ((i % FIXED_PIXEL_INTERVAL) == 0) {
         //strip.setPixelColor(i, 16, 16, 0);
-        pixel_Pattern[i]='W';
+        pattern_Param[i]='W';
         }
       else {
         //strip.setPixelColor(i, 0, 0, 0);
-        pixel_Pattern[i]='*';
+        pattern_Param[i]='*';
       }
     }
-    pixel_Pattern [NUM_PIXELS] = '\0'; // terminate with null char
+    pattern_Param [NUM_PIXELS] = '\0'; // terminate with null char
 
-    strcpy(indicator_Mode, "STROBE");
+    strcpy(mode_Param, "STROBE");
     timing_Pattern = 3;  // Use the timing pattern for double strobe unless changed
                    // by a passed argument (see below)
-    ms_per_unit =  msptu_for_STROBE[speed_Setting];
+    ms_per_unit =  msptu_for_STROBE[speed_Param];
 
     // Check to see if "DEFAULT" was specified for this mode
     // if so, set the mode to a white strobe at medium speed without piezo
     if (server.arg("STROBE") == "DEFAULT") {
-      strcpy(led_hex_Color,"222222");
-      strip_Level = 50;
-      strip_Brightness = scale100to255(strip_Level);
-      speed_Setting = 2; // medium speed
-      ms_per_unit = msptu_for_STROBE[speed_Setting]; 
+      strcpy(color_Param,"222222");
+      level_Param = 50;
+      strip_Brightness = scale100to255(level_Param);
+      speed_Param = 2; // medium speed
+      ms_per_unit = msptu_for_STROBE[speed_Param]; 
+      strcpy(tone_Param, "OFF");
       piezo_Active = false;
     }
     // Check to see if a strobe pattern was specified for
@@ -1180,7 +1170,7 @@ void handleRoot() {
 
     #ifdef DEBUG
     Serial.print("Set to ");
-    Serial.print(indicator_Mode);
+    Serial.print(mode_Param);
     Serial.println(". Checking for additional parameters.");
     #endif
   }
@@ -1195,21 +1185,22 @@ void handleRoot() {
     #endif
 
     // Set the pattern string to all 'X's
-    for(int i=0; i< NUM_PIXELS; i++) {pixel_Pattern[i]='*';}
-    pixel_Pattern [NUM_PIXELS] = '\0'; // terminate with null char
+    for(int i=0; i< NUM_PIXELS; i++) {pattern_Param[i]='*';}
+    pattern_Param [NUM_PIXELS] = '\0'; // terminate with null char
 
-    strcpy(indicator_Mode, "TRAIL");
+    strcpy(mode_Param, "TRAIL");
     timing_Pattern = 1;  // Use timing pattern for TRAIL
-    ms_per_unit =  msptu_for_TRAIL[speed_Setting];
+    ms_per_unit =  msptu_for_TRAIL[speed_Param];
 
     // Check to see if "DEFAULT" was specified for this mode
     // if so, set the mode to a white dot trail at medium speed without piezo
     if (server.arg("TRAIL") == "DEFAULT") {
-      strcpy(led_hex_Color,"FFFFFF");
-      strip_Level = 50;
-      strip_Brightness = scale100to255(strip_Level);
-      speed_Setting = 2; // medium speed
-      ms_per_unit = msptu_for_TRAIL[speed_Setting]; // medium speed
+      strcpy(color_Param,"FFFFFF");
+      level_Param = 50;
+      strip_Brightness = scale100to255(level_Param);
+      speed_Param = 2; // medium speed
+      ms_per_unit = msptu_for_TRAIL[speed_Param]; // medium speed
+      strcpy(tone_Param, "OFF");
       piezo_Active = false;
     }
 
@@ -1217,7 +1208,7 @@ void handleRoot() {
 
     #ifdef DEBUG
     Serial.print("Set to ");
-    Serial.print(indicator_Mode);
+    Serial.print(mode_Param);
     Serial.println(". Checking for additional parameters.");
     #endif
   } 
@@ -1232,20 +1223,21 @@ void handleRoot() {
     #endif
 
 
-    strcpy(indicator_Mode, "RAINBOW");
-    strcpy(led_hex_Color,"FFFFFF");
+    strcpy(mode_Param, "RAINBOW");
+    strcpy(color_Param,"FFFFFF");
     timing_Pattern = 0; 
-    ms_per_unit =  msptu_for_RAINBOW[speed_Setting];
+    ms_per_unit =  msptu_for_RAINBOW[speed_Param];
 
-    for(int i=0; i< NUM_PIXELS; i++) {pixel_Pattern[i]='*';}
-    pixel_Pattern[NUM_PIXELS] = '\0';  // terminate with null char
+    for(int i=0; i< NUM_PIXELS; i++) {pattern_Param[i]='*';}
+    pattern_Param[NUM_PIXELS] = '\0';  // terminate with null char
 
     // Check to see if "DEFAULT" was specified for this mode
     if (server.arg("RAINBOW") == "DEFAULT") {
-      strip_Level = 50;
-      strip_Brightness = scale100to255(strip_Level);
-      speed_Setting = 2; // medium speed
-      ms_per_unit =  msptu_for_RAINBOW[speed_Setting];
+      level_Param = 50;
+      strip_Brightness = scale100to255(level_Param);
+      speed_Param = 2; // medium speed
+      ms_per_unit =  msptu_for_RAINBOW[speed_Param];
+      strcpy(tone_Param, "OFF");
       piezo_Active = false;
     }
 
@@ -1253,7 +1245,7 @@ void handleRoot() {
 
   #ifdef DEBUG
     Serial.print("Set to ");
-    Serial.print(indicator_Mode);
+    Serial.print(mode_Param);
     Serial.println(". Checking for additional parameters.");
     #endif
   }
@@ -1275,8 +1267,8 @@ void handleRoot() {
       int temp_int = temp_str.toInt();
       if (temp_int >= 0 && temp_int <= 100) {
         // input is valid, so set the level and brightness variables
-        strip_Level = temp_int;
-        strip_Brightness = scale100to255 (strip_Level);  //Scale to Neopixel range 0 - 255
+        level_Param = temp_int;
+        strip_Brightness = scale100to255 (level_Param);  //Scale to Neopixel range 0 - 255
         strip.setBrightness(strip_Brightness); 
       }
     }
@@ -1305,14 +1297,14 @@ void handleRoot() {
     if (isValidInteger (temp_str)) {
       int temp_int = temp_str.toInt();
       if (temp_int >= 0 && temp_int <= (NUM_SPEEDS-1)) {
-        speed_Setting = temp_int; 
+        speed_Param = temp_int; 
         // input is valid, so set the actual timing based on current mode
-        if      (strcmp(indicator_Mode,"FLASH") == 0) ms_per_unit =  msptu_for_FLASH[speed_Setting]; 
-        else if (strcmp(indicator_Mode,"PULSE") == 0) ms_per_unit =  msptu_for_PULSE[speed_Setting]; 
-        else if (strcmp(indicator_Mode,"RAINBOW") == 0) ms_per_unit =  msptu_for_RAINBOW[speed_Setting];
-        else if (strcmp(indicator_Mode,"SOS") == 0) ms_per_unit =  msptu_for_SOS[speed_Setting]; 
-        else if (strcmp(indicator_Mode,"STROBE") == 0) ms_per_unit =  msptu_for_STROBE[speed_Setting]; 
-        else if (strcmp(indicator_Mode,"TRAIL") == 0) ms_per_unit =  msptu_for_TRAIL[speed_Setting]; 
+        if      (strcmp(mode_Param,"FLASH") == 0) ms_per_unit =  msptu_for_FLASH[speed_Param]; 
+        else if (strcmp(mode_Param,"PULSE") == 0) ms_per_unit =  msptu_for_PULSE[speed_Param]; 
+        else if (strcmp(mode_Param,"RAINBOW") == 0) ms_per_unit =  msptu_for_RAINBOW[speed_Param];
+        else if (strcmp(mode_Param,"SOS") == 0) ms_per_unit =  msptu_for_SOS[speed_Param]; 
+        else if (strcmp(mode_Param,"STROBE") == 0) ms_per_unit =  msptu_for_STROBE[speed_Param]; 
+        else if (strcmp(mode_Param,"TRAIL") == 0) ms_per_unit =  msptu_for_TRAIL[speed_Param]; 
         else {} // do nothing -- timing not used in to PATTERN or SOLID modes
       }
     }
@@ -1341,11 +1333,11 @@ void handleRoot() {
 
       //Attempt to set the color -- if valid RGB hex value, then update indicator state variables
       if (isvalid_RGBHEX_COLOR(argument_value.c_str())) {
-        argument_value.toCharArray(led_hex_Color, sizeof(led_hex_Color)); 
+        argument_value.toCharArray(color_Param, sizeof(color_Param)); 
 
         #ifdef DEBUG
-        Serial.print("Set to led_hex_Color ");
-        Serial.println (led_hex_Color);
+        Serial.print("Set to color_Param ");
+        Serial.println (color_Param);
         #endif
       }
     }
@@ -1366,9 +1358,11 @@ void handleRoot() {
     #endif
 
     if (server.arg("TONE") == "ON") {
+      strcpy(tone_Param, "ON");
       piezo_Active = true;
     }
     else if (server.arg("TONE") == "OFF"){
+      strcpy(tone_Param, "OFF");
       piezo_Active = false;
       //immediately turn off
       digitalWrite(LED_ONBOARD, 1) ; // turn off light
@@ -1397,7 +1391,7 @@ void handleSTARTUP() {
   Serial.println(remoteIp);
   #endif
 
-  strcpy(indicator_Mode, "STARTUP");
+  strcpy(mode_Param, "STARTUP");
   digitalWrite(LED_ONBOARD, HIGH); //LED off
   digitalWrite(PIEZO_BUZZER, LOW); //Piezo Buzzer off
   const int temp_LED_LEVEL = 255;
@@ -1408,16 +1402,16 @@ void handleSTARTUP() {
   for (int i = 0; i < NUM_PIXELS; i++) {
     if ((i % FIXED_PIXEL_INTERVAL) == 0) {
       strip.setPixelColor(i, 0, 0, 16);
-      pixel_Pattern[i]='B';
+      pattern_Param[i]='B';
       }
     else {
       strip.setPixelColor(i, 0, 0, 0);
-      pixel_Pattern[i]='O';
+      pattern_Param[i]='O';
     }
   }
   // Set the "average" color of the Neopixel at this point
   // Not really necessary but provides consistency in reporting settings
-  strcpy(led_hex_Color,"000005");
+  strcpy(color_Param,"000005");
   strip.show();   
 
   
@@ -1520,7 +1514,7 @@ void rgbToHex(int r, int g, int b, char* hexColor) {
   sprintf(hexColor, "%02X%02X%02X", r, g, b);
 }
 
-bool setled_hex_Color(const char *data) {
+bool set_ring_color(const char *data) {
   int red, green, blue;
   int result = sscanf(data, "%02x%02x%02x", &red, &green, &blue);
   if (result == 3) {
@@ -1579,7 +1573,7 @@ void fadePixelTrail() {
     current_trail_pixel = (current_trail_pixel + 1) % NUM_PIXELS;
 
     // Set the new pixel to the trail color
-    strip.setPixelColor(current_trail_pixel, hexToUint32(led_hex_Color));
+    strip.setPixelColor(current_trail_pixel, hexToUint32(color_Param));
 
     // Fade the trail
     for (int i = 0; i < NUM_PIXELS; i++) {
@@ -1641,7 +1635,7 @@ void ConfigurationPortal() {
   preferences.clear();
   preferences.end();
 
-  digitalWrite(ledPin, LOW);
+  digitalWrite(LED_ONBOARD, LOW);
   //NEOPIXEL Indicate ConfigurationPortal (red at pixel 0)
   const int temp_LED_LEVEL = 255;
   const int pixel_brightness = 16;
@@ -1766,7 +1760,7 @@ void ConfigurationPortal() {
     if (tempcurrentMillis - temppreviousMillis >= 500) {
       temppreviousMillis = tempcurrentMillis;
       temptoggle = !temptoggle; // Toggle the state
-      digitalWrite(ledPin, temptoggle); // toggle the onboard LED
+      digitalWrite(LED_ONBOARD, temptoggle); // toggle the onboard LED
       strip.setPixelColor(0, 0, pixel_brightness * temptoggle, 0);
       strip.show(); 
       blinkCount++; 
