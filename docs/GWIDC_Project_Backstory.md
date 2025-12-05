@@ -31,3 +31,8 @@ As a hobbyist and truly novice developer, I relied quite a lot on Internet searc
 That being said, I do not claim to have exercised best practices of coding or design, and I'm certain that others with more experience will quickly identify where I have made poor choices with the software and/or hardware. For example, my solution uses an unencrypted communication protocol (HTTP). Since GWIDC message traffic is confined to a secured home network, the risk seemed low. But that's an area where additional development could be useful.
 
 In the end, the GWIDC is perfect for my needs and has proven very reliable with my Hubitat set up. Mostly, the project was a fun learning experience!
+
+---
+
+&copy; 2025 Tim Sakulich. GWIDC documentation is licensed under Creative Commons Attribution-ShareAlike 4.0 International. <br>
+See: [`LICENSE-DOCS`](/LICENSE-DOCS)
