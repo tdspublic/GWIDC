@@ -39,3 +39,8 @@ For example, to set the device mode to FLASHER, RGB color to 00FFFF, BRIGHTNESS 
 
 >[!NOTE]
 >The GWIDC driver in Hubitat only supports sending display mode and display mode parameters via the Device Notification capability. The driver does not support sending GWIDC standalone commands show such as HUB_CONFIG, REPORT_SETTINGS and VERSION_INFO using the Device Notification capability.
+
+---
+
+&copy; 2025 Tim Sakulich. GWIDC documentation is licensed under Creative Commons Attribution-ShareAlike 4.0 International. <br>
+See: [`LICENSE-DOCS`](/LICENSE-DOCS)
