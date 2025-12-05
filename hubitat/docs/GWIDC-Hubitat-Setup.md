@@ -206,3 +206,8 @@ Hubitat configuration
   Hubitat and the router (e.g., a firewell setting?) or some other
   driver or setting on the Hubitat that is interfering with the ability
   of the Hubitat to communicate with the GWIDC
+
+---
+
+&copy; 2025 Tim Sakulich. GWIDC documentation is licensed under Creative Commons Attribution-ShareAlike 4.0 International. <br>
+See: [`LICENSE-DOCS`](/LICENSE-DOCS)
