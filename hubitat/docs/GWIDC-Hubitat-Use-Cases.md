@@ -33,4 +33,8 @@ The GWIDC can be used as a Strobe, Siren or Both alarm device with Hubitat’s H
 Another approach is to create a separate rule that triggers whenever a leak is detected, and commands the GWIDC to strobe blue while beeping. The action in this case is a Device Notification along the lines of 
 `STROBE&RGB=000022&LEVEL=100&SPEED=2&TONE=ON`
 
+---
+
+&copy; 2025 Tim Sakulich. GWIDC documentation is licensed under Creative Commons Attribution-ShareAlike 4.0 International. <br>
+See: [`LICENSE-DOCS`](/LICENSE-DOCS)
 
