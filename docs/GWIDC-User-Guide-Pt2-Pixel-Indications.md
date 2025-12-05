@@ -9,3 +9,8 @@
 |Blue pixels<br>@ positions 0, 3, 7, and 11 ![Image of Neopixel with four blue pixels](images/GWIDC-4Bluepixels.png)|Part of normal boot up sequence. The device is connected to the network, has sent an initial STARTUP message to the Hubitat IP address/port, and is ready to accept commands from the Hubitat.<br><br>If the device stays in this state for an extended period:<br>- Verify that the device was supplied with the correct static IP and port number of the target Hubitat hub (check via web browser with `http://<GWIDC_IPAddress>/REPORT_SETTINGS` <br>- Verify that the Hubitat is online at the correct static IP address, and verify the device configuration (Device Network ID, Device Type, and device IP address).<br><br>If everything checks out, rebooting the device should fix the problem. Otherwise, the problem may be with the router or network itself|
 |Yellow pixels<br>@ positions 0 and 6 ![Image of Neopixel with two yellow pixels at top](images/GWIDC-2Yellowpixels.png)|Device has disconnected from the network. It will attempt to reconnect with previously saved credentials.  This can take less than a second or up to a few seconds.|
 |Any other pixel colors/patterns|The device pixels and the piezo buzzer change in response to properly formatted messages from the Hubitat and from browser HTTP calls|
+
+---
+
+&copy; 2025 Tim Sakulich. GWIDC documentation is licensed under Creative Commons Attribution-ShareAlike 4.0 International. <br>
+See: [`LICENSE-DOCS`](/LICENSE-DOCS)
