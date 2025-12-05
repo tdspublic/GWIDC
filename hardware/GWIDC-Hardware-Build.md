@@ -28,3 +28,9 @@ Though the initial software upload must be done via NodeMCU serial port, the GWI
 
 ![GWIDC Photo 1](images/GWIDC-Pic1.jpeg)  ![GWIDC Photo 2](images/GWIDC-Pic2.jpeg)  ![GWIDC Photo 3](images/GWIDC-Pic3.jpeg)
 
+
+---
+
+&copy; 2025 Tim Sakulich. GWIDC documentation is licensed under Creative Commons Attribution-ShareAlike 4.0 International. <br>
+See: [`LICENSE-DOCS`](/LICENSE-DOCS)
+
