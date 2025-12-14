@@ -30,7 +30,7 @@
 
 /*
 
-This sketch was developed as the software core to an indicator device
+This sketch was developed as the firmware core to an indicator device
 comprised of an NodeMCU 1.0 Development Board connected to a NeoPixel Ring,
 (12 Pixel) piezo buzzer, and microswitch button. The device is controllable 
 over WiFi through HTTP messages.
@@ -86,7 +86,7 @@ HARDWARE COMPONENTS
 
 SUMMARY OF STANDALONE HTTP COMMANDS
 
-Syntax is http://<GWIDC_IPAddress><Command>
+Syntax is http://<GWIDC_IPAddress>/<Command>
 
 - BEEP - Briefly sounds the piezo buzzer.
 - HUB_CONFIG - Enables run time change to the home automation hub IP and
@@ -99,8 +99,8 @@ Syntax is http://<GWIDC_IPAddress><Command>
 - STARTUP - Commands the GWIDC to send a formatted JSON message to the
   home automation hub IP and port (if configured), notifying the hub
   that the device is in STARTUP mode.
-- VERSION_INFO - Returns device hardware ID, build version, and the
-  build date & time.
+- VERSION_INFO - Returns a formatted JSON messag to identify the 
+  device hardware ID, build version, and the build date & time.
 
 SUMMARY OF GWIDC DISPLAY MODES - VIA HTTP MESSAGE
 
@@ -829,7 +829,7 @@ void handleREPORT_SETTINGS() {
   message = "****** DEVICE INFORMATION ****** <br><br>";
 
   message = message + "General-purpose WiFi-based Indicator DeviCe (GWIDC)" + "<br>";
-  message = message + "Currently Running Software Version " + BUILDVERSION + "<br>";
+  message = message + "Currently Running Firmware Version " + BUILDVERSION + "<br>";
   message = message + "Source Code " + SKETCHNAME + " ";
   message = message + "("+ BUILDDATE + "  " + BUILDTIME + ")<br><br>";
 
