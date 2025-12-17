@@ -1,5 +1,0 @@
-## GWIDC Animations
-
-
-`http://<GWIDC_IPAddress>/?FLASH&RGB=00FFFF&LEVEL=100&SPEED=2&TONE=ON` 
-
