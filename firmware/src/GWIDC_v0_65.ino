@@ -4,7 +4,7 @@
 // Copyright (c) 2025 Timothy Sakulich
 
 //These definitions are used to embed sketch information in the code itself
-#define BUILDVERSION "GWIDC_v0_60"
+#define BUILDVERSION "GWIDC_v0_65"
 #define SKETCHNAME __FILE__
 #define BUILDDATE __DATE__
 #define BUILDTIME __TIME__
@@ -110,6 +110,7 @@ operations. Syntax is http://<GWIDC_IPAddress>/?<Display_Mode>
   additional characters are ignored.
 - FLASH - Flashing effect using the current color setting.
 - PULSE - Pulsating effect using the current color setting.
+- ROTOR - Rotating effect of evenly spaced pixels using the current color setting.
 - SOLID - All pixels display the current color setting.
 - STROBE - Strobing effect using the current color setting.
 - TRAIL - Creates effect of a dot moving around the ring with a trail
@@ -224,9 +225,10 @@ char tone_Param[4];       // ON or OFF -- set in combination with piezo_Active
 // Misc global variables and constants
 uint16_t strip_Brightness;         //actual Neopixel brightness in range 0-255 
 uint16_t timing_Pattern = 0;
-uint16_t current_trail_pixel = 0;  // Needed for TRAIL mode
+uint16_t current_Lead_pixel = 0;  // Needed for TRAIL and ROTOR modes
 uint16_t TRAIL_FADE = 30;          // Amount of color value to decrement each successive pixel
-bool     trail_moves_cw = true;    // true = Clockwise, false = Counter Clockwise
+uint16_t rotor_Pixel_interval = 4; // Modulus that defines the spacing between pixels in ROTOR
+bool     pixel_Motion_cw = true;   // true = Clockwise, false = Counter Clockwise
 
 /// Declare global constants and variables for managing PULSE patterns in the main loop
 uint16_t pulse_strip_Brightness = 0; // will be calculated in real time
@@ -244,7 +246,7 @@ const byte NUM_TIMING_PATTERNS = 6;  // number of patterns
 const byte MAX_PATTERN_LEN = 18;     // max pattern length
 const uint16_t pattern[NUM_TIMING_PATTERNS][MAX_PATTERN_LEN] =
 { {1,0},             // constant for SOLID, PATTERN, RAINBOW
-  {1,1,0},           // even tempo for FLASH, PULSE, TRAIL
+  {1,1,0},           // even tempo for FLASH, PULSE, ROTOR, TRAIL
   {10,1,0},          // strobe pattern 1 for STROBE
   {10,1,1,1,0},      // strobe pattern 2 for STROBE
   {15,1,1,1,1,2,0},  // strobe pattern 3 for STROBE
@@ -259,6 +261,7 @@ const uint16_t NUM_SPEEDS = 5;  // Number of speeds contained in the following l
 const uint16_t msptu_for_FLASH[] = {1200,800,400,200,100};
 const uint16_t msptu_for_PULSE[] = {120,90,60,30,15};
 const uint16_t msptu_for_RAINBOW[] = {30,20,10,5,2};
+const uint16_t msptu_for_ROTOR[]   = {110,90,70,40,20};
 const uint16_t msptu_for_SOS[]     = {250,200,150,80,60};
 const uint16_t msptu_for_STROBE[]  = {300,200,100,50,25};
 const uint16_t msptu_for_TRAIL[]   = {110,90,70,40,20};
@@ -581,6 +584,12 @@ void loop() {
       strip.show();
     }
 
+  else if (strcmp(mode_Param,"ROTOR") == 0) {
+      strip.setBrightness(strip_Brightness); 
+      if (step % 2 == 0) movePixelRotor();
+      strip.show();
+    }
+
     else if (strcmp(mode_Param,"SOLID") == 0) {
       strip.setBrightness(strip_Brightness);
       set_ring_color (rgb_Param);
@@ -609,7 +618,7 @@ void loop() {
 
     else if (strcmp(mode_Param,"TRAIL") == 0) {
       strip.setBrightness(strip_Brightness); 
-      if (step % 2 == 0) fadePixelTrail();
+      if (step % 2 == 0) movePixelTrail();
       strip.show();
     }
       
@@ -1042,6 +1051,50 @@ void handleRoot() {
     #endif
   }
   
+/////////////////
+  else if (server.hasArg("ROTOR")) {
+    // Flash with a single color (hexidecimal value) 
+    String message = "Received ROTOR";
+    
+    #ifdef DEBUG
+    Serial.println(message);
+    #endif
+
+    // Set the pattern string to all 'X's
+    for(int i=0; i< NUM_PIXELS; i++) {pattern_Param[i]='*';}
+    pattern_Param [NUM_PIXELS] = '\0'; // terminate with null char
+
+    strcpy(mode_Param, "ROTOR");
+    timing_Pattern = 1;  // Use timing pattern for ROTOR
+    ms_per_unit =  msptu_for_ROTOR[speed_Param];
+
+    // Check to see if "DEFAULT" was specified for this mode
+    // if so, set the mode to a white dot trail at medium speed without piezo
+    if (server.arg("ROTOR") == "DEFAULT") {
+      strcpy(rgb_Param,"FFFFFF");
+      level_Param = 50;
+      strip_Brightness = scale100to255(level_Param);
+      speed_Param = 2; // medium speed
+      pixel_Motion_cw = true; // clockwise direction
+      ms_per_unit = msptu_for_ROTOR[speed_Param]; // medium speed
+      strcpy(tone_Param, "OFF");
+      piezo_Active = false;
+    }
+
+    // Check to see if a direction was specified for this mode
+    else if (server.arg("ROTOR") == "CW") pixel_Motion_cw = true;
+    else if (server.arg("ROTOR") == "CCW") pixel_Motion_cw = false;
+
+    reset_for_new_pattern();
+
+    #ifdef DEBUG
+    Serial.print("Set to ");
+    Serial.print(mode_Param);
+    Serial.println(". Checking for additional parameters.");
+    #endif
+  }
+/////////////////
+
 
   else if (server.hasArg("SOLID")) {
     // Set to a single color (hexidecimal value)
@@ -1195,16 +1248,15 @@ void handleRoot() {
       level_Param = 50;
       strip_Brightness = scale100to255(level_Param);
       speed_Param = 2; // medium speed
-      trail_moves_cw = true; // clockwise direction
+      pixel_Motion_cw = true; // clockwise direction
       ms_per_unit = msptu_for_TRAIL[speed_Param]; // medium speed
       strcpy(tone_Param, "OFF");
       piezo_Active = false;
     }
 
-    // Check to see if a strobe pattern was specified for
-    // this mode 
-    else if (server.arg("TRAIL") == "CW") trail_moves_cw = true;
-    else if (server.arg("TRAIL") == "CCW") trail_moves_cw = false;
+    // Check to see if a direction was specified for this mode
+    else if (server.arg("TRAIL") == "CW") pixel_Motion_cw = true;
+    else if (server.arg("TRAIL") == "CCW") pixel_Motion_cw = false;
 
     reset_for_new_pattern();
 
@@ -1304,6 +1356,7 @@ void handleRoot() {
         if      (strcmp(mode_Param,"FLASH") == 0) ms_per_unit =  msptu_for_FLASH[speed_Param]; 
         else if (strcmp(mode_Param,"PULSE") == 0) ms_per_unit =  msptu_for_PULSE[speed_Param]; 
         else if (strcmp(mode_Param,"RAINBOW") == 0) ms_per_unit =  msptu_for_RAINBOW[speed_Param];
+        else if (strcmp(mode_Param,"ROTOR") == 0) ms_per_unit =  msptu_for_ROTOR[speed_Param]; 
         else if (strcmp(mode_Param,"SOS") == 0) ms_per_unit =  msptu_for_SOS[speed_Param]; 
         else if (strcmp(mode_Param,"STROBE") == 0) ms_per_unit =  msptu_for_STROBE[speed_Param]; 
         else if (strcmp(mode_Param,"TRAIL") == 0) ms_per_unit =  msptu_for_TRAIL[speed_Param]; 
@@ -1569,22 +1622,22 @@ void colorWipe(uint32_t color, int wait) {
 
 
 // Fades a trail of pixels
-void fadePixelTrail() {
+void movePixelTrail() {
     
-    if (trail_moves_cw) {
+    if (pixel_Motion_cw) {
       // Move the dot Clockwise
       // Advance to the next pixel, wrapping around the ring CW
-      current_trail_pixel = (current_trail_pixel + 1) % NUM_PIXELS;
+      current_Lead_pixel = (current_Lead_pixel + 1) % NUM_PIXELS;
     }
     else {
       // Move the dot Counter Clockwise
       // Reverse to the prior pixel, wrapping around the ring CCW
-      if (current_trail_pixel == 0) current_trail_pixel = NUM_PIXELS-1;
-      else current_trail_pixel = (current_trail_pixel - 1);
+      if (current_Lead_pixel == 0) current_Lead_pixel = NUM_PIXELS-1;
+      else current_Lead_pixel = (current_Lead_pixel - 1);
     }
 
     // Set the new pixel to the trail color
-    strip.setPixelColor(current_trail_pixel, hexToUint32(rgb_Param));
+    strip.setPixelColor(current_Lead_pixel, hexToUint32(rgb_Param));
 
     // Fade the trail
     for (int i = 0; i < NUM_PIXELS; i++) {
@@ -1605,6 +1658,30 @@ void fadePixelTrail() {
     }
 }
 
+// Rotates a pattern of pixels
+void movePixelRotor() {
+    
+    if (pixel_Motion_cw) {
+      // Move the dot Clockwise
+      // Advance to the next pixel, wrapping around the ring CW
+      current_Lead_pixel = (current_Lead_pixel + 1) % NUM_PIXELS;
+    }
+    else {
+      // Move the dot Counter Clockwise
+      // Reverse to the prior pixel, wrapping around the ring CCW
+      if (current_Lead_pixel == 0) current_Lead_pixel = NUM_PIXELS-1;
+      else current_Lead_pixel = (current_Lead_pixel - 1);
+    }
+
+    // Set the new pixel to the trail color
+
+    for (int i = 0; i < NUM_PIXELS; i++) {
+      int temp_pixel = (i + current_Lead_pixel) % NUM_PIXELS;
+      if ((i % rotor_Pixel_interval) == 0) strip.setPixelColor(temp_pixel, hexToUint32(rgb_Param));
+      else strip.setPixelColor(temp_pixel, strip.Color(0,0,0));
+    }
+}
+
 
 void reset_for_new_pattern() { // used to reset when starting new timing or pixel modality
       #ifdef DEBUG
@@ -1614,7 +1691,7 @@ void reset_for_new_pattern() { // used to reset when starting new timing or pixe
       flag_pattern_restart = true;
       start_Time = millis();
       step = 0;                       // start at beginning of timing pattern      
-      current_trail_pixel = 0;        // start at the top
+      current_Lead_pixel = 0;        // start at the top
       // Clear other pixel states 
       // This is mainly to clear the "trail" of pixels if TRAIL was previous mode
       strip.clear();
