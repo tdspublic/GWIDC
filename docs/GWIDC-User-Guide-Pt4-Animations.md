@@ -10,6 +10,11 @@
 
 ![Example of PULSE mode in Cyan](images/PULSE_animation_cyan.gif)
 
+### Example of ROTOR mode in Purple
+`http://<GWIDC_IPAddress>/?ROTOR&RGB=FF00FF` 
+
+![Example of ROTOR mode in Purple](images/ROTOR_animation_purple.gif)
+
 ### Example of SOS mode in Red
 `http://<GWIDC_IPAddress>/?SOS&RGB=FF0000` 
 
